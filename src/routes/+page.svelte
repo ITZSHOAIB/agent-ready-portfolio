@@ -1,0 +1,312 @@
+<script lang="ts">
+    import { Sparkles } from "@lucide/svelte";
+    import AskAiDialog from "$lib/components/AskAiDialog.svelte";
+    import ExperienceSection from "$lib/components/ExperienceSection.svelte";
+    import HeroSidebar from "$lib/components/HeroSidebar.svelte";
+    import ProjectsSection from "$lib/components/ProjectsSection.svelte";
+    import SelectedWorkSection from "$lib/components/SelectedWorkSection.svelte";
+    import SkillsSection from "$lib/components/SkillsSection.svelte";
+    import BlogSection from "$lib/components/BlogSection.svelte";
+    import type { PageData } from "./$types";
+
+    let { data }: { data: PageData } = $props();
+    let askAi = $state<AskAiDialog>();
+
+    const canonicalUrl = $derived(`${data.site.url}/`);
+    const socialImageUrl = $derived(`${data.site.url}${data.site.image.path}`);
+    const profileImageUrl = $derived(
+        `${data.site.url}${data.site.profileImage.path}`,
+    );
+    const sameAsLinks = $derived(
+        data.profile.links
+            .filter((link) => link.href.startsWith("http"))
+            .map((link) => link.href),
+    );
+    const allSkills = $derived([
+        ...data.skillSummary.primary,
+        ...data.skillSummary.secondary,
+    ]);
+    const latestProjectDate = $derived(
+        data.projects
+            .map((project) => project.updated)
+            .filter((updated) => updated && /^\d{4}-\d{2}-\d{2}$/.test(updated))
+            .sort()
+            .at(-1) ?? data.site.modifiedDate,
+    );
+    const dateModified = $derived(
+        latestProjectDate > data.site.modifiedDate
+            ? latestProjectDate
+            : data.site.modifiedDate,
+    );
+    const projectSchemaItems = $derived(
+        data.projects.map((project, index) => ({
+            "@type": "ListItem",
+            position: index + 1,
+            item: {
+                "@type": project.href.includes("github.com")
+                    ? "SoftwareSourceCode"
+                    : "SoftwareApplication",
+                name: project.name,
+                description: project.description,
+                url: project.href,
+                ...(project.language && { programmingLanguage: project.language }),
+                keywords: project.topics,
+                ...(project.image
+                    ? {
+                          image: {
+                              "@type": "ImageObject",
+                              url: `${data.site.url}${project.image.src}`,
+                              width: project.image.width,
+                              height: project.image.height,
+                              caption: project.image.alt,
+                          },
+                      }
+                    : {}),
+                ...(project.href.includes("github.com")
+                    ? { codeRepository: project.href }
+                    : { applicationCategory: "DeveloperApplication" }),
+                author: {
+                    "@id": `${canonicalUrl}#person`,
+                },
+            },
+        })),
+    );
+    const jsonLd = $derived({
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Person",
+                "@id": `${canonicalUrl}#person`,
+                name: data.profile.name,
+                givenName: data.profile.givenName,
+                familyName: data.profile.familyName,
+                url: canonicalUrl,
+                image: {
+                    "@type": "ImageObject",
+                    "@id": `${canonicalUrl}#profile-image`,
+                    url: profileImageUrl,
+                    width: data.site.profileImage.width,
+                    height: data.site.profileImage.height,
+                    caption: data.site.profileImage.alt,
+                },
+                jobTitle: data.profile.role,
+                email: data.profile.email,
+                description: data.site.shortDescription,
+                knowsAbout: allSkills,
+                sameAs: sameAsLinks,
+                knowsLanguage: ["en"],
+                hasOccupation: {
+                    "@type": "Occupation",
+                    name: data.profile.role,
+                    skills: allSkills.join(", "),
+                    occupationLocation: {
+                        "@type": "Country",
+                        name: "India",
+                    },
+                },
+                worksFor: {
+                    "@type": "Organization",
+                    name: data.profile.company,
+                },
+            },
+            {
+                "@type": "WebSite",
+                "@id": `${canonicalUrl}#website`,
+                name: data.site.name,
+                url: canonicalUrl,
+                inLanguage: data.site.language,
+                description: data.site.description,
+                image: socialImageUrl,
+                publisher: {
+                    "@id": `${canonicalUrl}#person`,
+                },
+            },
+            {
+                "@type": ["WebPage", "ProfilePage"],
+                "@id": `${canonicalUrl}#profile-page`,
+                name: data.site.title,
+                url: canonicalUrl,
+                inLanguage: data.site.language,
+                description: data.site.description,
+                datePublished: data.site.publishedDate,
+                dateModified,
+                isPartOf: {
+                    "@id": `${canonicalUrl}#website`,
+                },
+                primaryImageOfPage: {
+                    "@type": "ImageObject",
+                    url: socialImageUrl,
+                    width: data.site.image.width,
+                    height: data.site.image.height,
+                    caption: data.site.image.alt,
+                },
+                mainEntity: {
+                    "@id": `${canonicalUrl}#person`,
+                },
+                breadcrumb: {
+                    "@id": `${canonicalUrl}#breadcrumb`,
+                },
+            },
+            {
+                "@type": "BreadcrumbList",
+                "@id": `${canonicalUrl}#breadcrumb`,
+                itemListElement: [
+                    {
+                        "@type": "ListItem",
+                        position: 1,
+                        name: data.profile.name,
+                        item: canonicalUrl,
+                    },
+                ],
+            },
+            {
+                "@type": "ItemList",
+                "@id": `${canonicalUrl}#selected-projects`,
+                name: `Selected projects by ${data.profile.name}`,
+                itemListElement: projectSchemaItems,
+            },
+        ],
+    });
+    const jsonLdScript = $derived(
+        `<script type="application/ld+json">${JSON.stringify(jsonLd).replaceAll(
+            "<",
+            "\\u003c",
+        )}</` + "script>",
+    );
+</script>
+
+<svelte:head>
+    <title>{data.site.title}</title>
+    <meta name="description" content={data.site.description} />
+    <meta name="author" content={data.profile.name} />
+    <meta name="keywords" content={data.site.keywords.join(", ")} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="application-name" content={data.site.name} />
+    <meta name="apple-mobile-web-app-title" content={data.site.name} />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    {#if data.blog.enabled}
+        <link
+            rel="alternate"
+            type="application/rss+xml"
+            title={`${data.site.name} blog`}
+            href="/rss.xml"
+        />
+    {/if}
+    <link rel="me" href={`mailto:${data.profile.email}`} />
+    {#each data.profile.links.filter( (link) => link.href.startsWith("http") ) as link}
+        <link rel="me" href={link.href} />
+    {/each}
+    <meta property="og:title" content={data.site.title} />
+    <meta property="og:description" content={data.site.description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content={data.site.name} />
+    <meta property="og:locale" content={data.site.locale} />
+    <meta property="og:updated_time" content={dateModified} />
+    <meta property="og:image" content={socialImageUrl} />
+    <meta property="og:image:secure_url" content={socialImageUrl} />
+    <meta property="og:image:type" content={data.site.image.type} />
+    <meta property="og:image:width" content={String(data.site.image.width)} />
+    <meta property="og:image:height" content={String(data.site.image.height)} />
+    <meta property="og:image:alt" content={data.site.image.alt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    {#if data.site.twitterHandle}
+    <meta name="twitter:site" content={data.site.twitterHandle} />
+    <meta name="twitter:creator" content={data.site.twitterHandle} />
+    {/if}
+    <meta name="twitter:title" content={data.site.title} />
+    <meta name="twitter:description" content={data.site.description} />
+    <meta name="twitter:image" content={socialImageUrl} />
+    <meta name="twitter:image:alt" content={data.site.image.alt} />
+    <meta name="twitter:image:width" content={String(data.site.image.width)} />
+    <meta name="twitter:image:height" content={String(data.site.image.height)} />
+    <meta name="theme-color" content={data.site.themeColor} />
+    <meta name="color-scheme" content="dark" />
+    {@html jsonLdScript}
+    {#if data.site.analyticsToken}
+        <script
+            defer
+            src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon={JSON.stringify({ token: data.site.analyticsToken })}
+        ></script>
+    {/if}
+</svelte:head>
+
+<div class="min-h-screen bg-[#000000] text-[#fafafa]">
+    <header
+        class="sticky top-0 z-40 border-b border-[#27272a] bg-[#000000]/88 backdrop-blur-xl lg:hidden"
+    >
+        <div
+            class="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 px-4"
+        >
+            <a class="font-semibold tracking-tight" href="#top"
+                >{data.profile.name}</a
+            >
+            <div class="flex items-center gap-3">
+                {#if data.blog.enabled}
+                    <a
+                        class="text-sm font-semibold text-[#d4d4d8] transition hover:text-[#fafafa]"
+                        href="/blog">Blog</a
+                    >
+                {/if}
+                {#if data.site.features.askAi}
+                    <button
+                        type="button"
+                        class="ask-ai inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-2 text-sm! font-bold text-[#fafafa]"
+                        onclick={() => askAi?.open()}
+                        aria-haspopup="dialog"
+                    >
+                        <Sparkles class="size-3.5" />
+                        Ask AI
+                    </button>
+                {/if}
+            </div>
+        </div>
+    </header>
+
+    <main
+        id="top"
+        class="grid min-h-screen lg:grid-cols-[minmax(20rem,34vw)_minmax(0,1fr)]"
+    >
+        <HeroSidebar
+            profile={data.profile}
+            experienceText={data.experienceText}
+            onAskAi={data.site.features.askAi ? () => askAi?.open() : undefined}
+            hasBlog={data.blog.enabled}
+            openToWorkText={data.site.features.openToWork
+                ? data.site.openToWorkText
+                : undefined}
+        />
+
+        <section class="min-w-0">
+            <div
+                class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10 xl:px-14"
+            >
+                <SelectedWorkSection work={data.selectedWork} />
+                <ExperienceSection experience={data.experience} />
+                <ProjectsSection projects={data.projects} />
+                <SkillsSection skills={data.skillSummary} />
+
+                {#if data.blog.enabled}
+                    <BlogSection posts={data.blog.posts} />
+                {/if}
+            </div>
+        </section>
+    </main>
+
+    {#if data.site.features.askAi}
+        <AskAiDialog
+            bind:this={askAi}
+            siteUrl={data.site.url}
+            name={data.profile.name}
+            handle={data.site.handle}
+            mcp={data.site.features.mcp}
+        />
+    {/if}
+</div>
